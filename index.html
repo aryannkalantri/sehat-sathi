@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0E6E6E">
+<title>Sehat Sathi — जानें डॉक्टर के पास कब जाएं</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Mukta:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <header id="topbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">+</span><span id="brandName">Sehat Sathi</span></div>
+    <div class="top-actions">
+      <button id="langToggle" class="lang-btn" aria-label="Switch language">EN</button>
+      <a id="sosBtn" class="sos-btn" href="tel:108">108</a>
+    </div>
+  </header>
+  <div id="demoBanner" class="demo-banner"></div>
+
+  <main id="screens">
+    <!-- Language select -->
+    <section id="screen-lang" class="screen active">
+      <div class="center-wrap">
+        <div class="brand-hero"><span class="brand-mark lg" aria-hidden="true">+</span></div>
+        <h1>Sehat Sathi<br><span class="tagline" id="langTagline"></span></h1>
+        <p class="hint" id="langHint"></p>
+        <button class="big-btn" data-setlang="hi">हिंदी</button>
+        <button class="big-btn" data-setlang="en">English</button>
+      </div>
+    </section>
+
+    <!-- Consent -->
+    <section id="screen-consent" class="screen">
+      <div class="center-wrap">
+        <h2 id="consentTitle"></h2>
+        <div class="notice-card">
+          <p id="disclaimerText"></p>
+          <button id="listenBtn" class="chip-btn"></button>
+        </div>
+        <p class="privacy-note" id="privacyNote"></p>
+        <button id="consentBtn" class="big-btn primary"></button>
+      </div>
+    </section>
+
+    <!-- Home: pick concern -->
+    <section id="screen-home" class="screen">
+      <div class="pad">
+        <h2 id="homeTitle"></h2>
+        <p class="hint" id="homeSub"></p>
+        <div id="flowCards"></div>
+      </div>
+    </section>
+
+    <!-- Chat -->
+    <section id="screen-chat" class="screen chat-screen">
+      <div id="messages" class="messages" aria-live="polite"></div>
+      <div id="chips" class="chips"></div>
+      <div class="input-bar">
+        <button id="micBtn" class="mic-btn" aria-label="Voice input" hidden>
+          <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3zm7-3a7 7 0 0 1-14 0H3a9 9 0 0 0 8 8.94V22h2v-1.06A9 9 0 0 0 21 12h-2z"/></svg>
+        </button>
+        <input id="textInput" type="text" autocomplete="off">
+        <button id="sendBtn" class="send-btn" aria-label="Send">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M3 20v-6l8-2-8-2V4l19 8-19 8z"/></svg>
+        </button>
+      </div>
+    </section>
+
+    <!-- Result -->
+    <section id="screen-result" class="screen">
+      <div class="pad">
+        <div id="resultCard" class="result-card"></div>
+        <p class="hint" id="resultNote"></p>
+        <div class="btn-row">
+          <button id="talkDoctorBtn" class="big-btn"></button>
+          <button id="restartBtn" class="big-btn ghost"></button>
+        </div>
+        <div id="escalationCard" class="notice-card" hidden>
+          <h3 id="escTitle"></h3>
+          <p id="escBody"></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Red-flag full-screen interrupt -->
+    <section id="screen-redflag" class="screen redflag">
+      <div class="center-wrap">
+        <div class="alert-icon" aria-hidden="true">!</div>
+        <h2 id="rfTitle"></h2>
+        <p id="rfAdvice" class="rf-advice"></p>
+        <a id="rfCall" class="big-btn sos" href="tel:108"></a>
+        <button id="rfRestart" class="big-btn ghost-light"></button>
+      </div>
+    </section>
+  </main>
+</div>
+<script src="i18n.js"></script>
+<script src="flows.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
