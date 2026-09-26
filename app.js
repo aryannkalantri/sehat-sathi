@@ -1,11 +1,13 @@
 /* Sehat Sathi v3 — AI-first triage chat.
-   - Free-text conversation goes through our own Cloudflare Worker proxy
-     (config.js -> SEHAT.proxyUrl). The Gemini API key NEVER touches the browser.
+   Two AI backends (proxy takes precedence):
+   1. Cloudflare Worker proxy (config.js -> SEHAT.proxyUrl). Key never in browser.
+   2. Demo direct-key path (config.js -> SEHAT.geminiKey): a Google AI Studio key
+      locked to this site's HTTP referrer + the Generative Language API only.
    - Client-side red-flag keyword guard runs on EVERY user message BEFORE any
      network call: instant 108 screen on match, no matter what the model says.
-   - The worker's server-side system prompt hard-forbids diagnosis and any
-     medicine names/doses. AI can also suggest tap chips for low-literacy users.
-   - Offline / proxy error / proxy not configured yet -> deterministic tap
+   - The AI is instructed never to diagnose or name any medicine/dose (prompt
+     rule, not a hard filter). AI can suggest tap chips for low-literacy users.
+   - Offline / AI error / no key configured -> deterministic tap
      questionnaire (flows.js), so the app never dies. */
 (function(){
 "use strict";
@@ -15,7 +17,13 @@ let flow = null, history = [];
 let mode = 'ai', aiHistory = [], lastFid = 'fever', busy = false;
 let voiceOn = true;
 
-const AI_READY = !!(window.SEHAT && SEHAT.proxyUrl && SEHAT.proxyUrl.indexOf('http') === 0);
+const AI_READY = (() => {
+  if (!window.SEHAT) return false;
+  const proxy = typeof SEHAT.proxyUrl === 'string' && SEHAT.proxyUrl.indexOf('http') === 0;
+  const direct = typeof SEHAT.geminiKey === 'string' && SEHAT.geminiKey.length > 20;
+  return proxy || direct;
+})();
+const USE_PROXY = !!(window.SEHAT && typeof SEHAT.proxyUrl === 'string' && SEHAT.proxyUrl.indexOf('http') === 0);
 
 function show(id){
   screens.forEach(s => $(s).classList.toggle('active', s === id));
@@ -160,21 +168,76 @@ function startAiChat(fid){
   addMsg('user', null, label);
   askAi();
 }
+/* Client-side system prompt (demo direct-key path only).
+   Mirrors proxy/worker.js. The production proxy builds its prompt server-side. */
+function clientSystemPrompt(){
+  const langIns = LANG === 'hi'
+    ? 'simple spoken Hindi in Devanagari script, the way an ASHA health worker speaks to villagers'
+    : 'very simple plain English';
+  return 'You are "Sehat Sathi", a symptom-triage chat assistant for rural Rajasthan, India. '
+    + 'Your ONLY job is to work out how urgently the person should see a doctor. The user is a villager, possibly low-literacy, on a cheap phone.\n'
+    + 'LANGUAGE: Reply in ' + langIns + '. Very simple everyday words. Short sentences.\n'
+    + 'HARD RULES (never break):\n'
+    + '1. You are NOT a doctor. Never diagnose a disease or say what illness the person "has".\n'
+    + '2. NEVER recommend, name, suggest, or dose any medicine, tablet, syrup, injection, vaccine, or home remedy — not even paracetamol, ORS, or kadha. No exceptions.\n'
+    + '3. Ask exactly ONE short question per reply. Every reply under 40 words.\n'
+    + '4. Your FIRST reply must ask about emergency danger signs: trouble breathing, chest pain, fainting, seizures, very heavy bleeding. If the concern is pregnancy, also ask: vaginal bleeding, severe headache, blurred vision, swelling of face or hands, baby moving less.\n'
+    + '5. If the user reports ANY danger sign, set "redflag": true, tell them to go to the nearest hospital NOW or call 108, and stop asking questions.\n'
+    + '6. When you have enough information, set "done": true and "urgency" to "green" (care at home, watch and wait), "yellow" (see a doctor within 24-48 hours), or "red" (go now / call 108).\n'
+    + '7. Never claim to be human, a doctor, government-approved, or "clinically proven".\n'
+    + '8. If asked for medicines or a diagnosis, say you cannot answer that and guide them to see a doctor.\n'
+    + '9. You MAY include "chips": 2-3 very short suggested replies the user can tap instead of typing (in the user\'s language, max 6 words each), e.g. ["हाँ","नहीं","पता नहीं"]. Omit when not useful.\n'
+    + 'OUTPUT: Reply with ONLY a JSON object, nothing else: '
+    + '{"reply": "<your message to the user>", "urgency": "none|green|yellow|red", "redflag": true|false, "done": true|false, "chips": ["..."]}. '
+    + 'While still asking questions use urgency "none" and done false.';
+}
+function parseAiJson(txt){
+  try{ return JSON.parse(txt); }catch(e){}
+  const m = /\{[\s\S]*\}/.exec(txt || '');
+  if (m){ try{ return JSON.parse(m[0]); }catch(e){} }
+  return null;
+}
+async function askProxy(signal){
+  const res = await fetch(SEHAT.proxyUrl, {
+    method: 'POST', signal: signal,
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ lang: LANG, messages: aiHistory })
+  });
+  if (!res.ok) throw new Error('http ' + res.status);
+  return res.json();
+}
+async function askDirect(signal){
+  const contents = aiHistory.map(m => ({ role: m.role, parts: [{ text: m.text }] }));
+  const res = await fetch(
+    'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(SEHAT.geminiModel || 'gemini-2.5-flash') + ':generateContent?key=' + encodeURIComponent(SEHAT.geminiKey),
+    { method: 'POST', signal: signal, headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: clientSystemPrompt() }] },
+        contents: contents,
+        generationConfig: { responseMimeType: 'application/json', temperature: 0.4, maxOutputTokens: 300 }
+      }) }
+  );
+  if (!res.ok) throw new Error('http ' + res.status);
+  const data = await res.json();
+  const parts = (((data.candidates || [])[0] || {}).content || {}).parts || [];
+  const raw = parts.map(p => p.text || '').join('');
+  const d = parseAiJson(raw);
+  if (!d || typeof d.reply !== 'string') throw new Error('bad json');
+  return d;
+}
+let lastAiCall = 0, aiTurns = 0;
 async function askAi(){
   if (!AI_READY){ startFallbackFlow(lastFid); return; }
+  const now = Date.now();
+  if (now - lastAiCall < 2500 || aiTurns >= 60){ startFallbackFlow(lastFid); return; }
+  lastAiCall = now; aiTurns++;
   busy = true; setChips([]);
   const tip = showTyping();
   try{
     const ctrl = new AbortController();
-    const to = setTimeout(() => ctrl.abort(), 45000);
-    const res = await fetch(SEHAT.proxyUrl, {
-      method: 'POST', signal: ctrl.signal,
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ lang: LANG, messages: aiHistory })
-    });
+    const to = setTimeout(() => ctrl.abort(), 60000);
+    const d = await (USE_PROXY ? askProxy(ctrl.signal) : askDirect(ctrl.signal));
     clearTimeout(to);
-    if (!res.ok) throw new Error('http ' + res.status);
-    const d = await res.json();
     hideTyping(tip); busy = false;
     if (!d || typeof d.reply !== 'string') throw new Error('bad reply');
     handleAi(d);
